@@ -28,6 +28,7 @@ interface GenerateDtsOptions {
   };
 }
 
+/** Generates .d.ts content with optional inline source map for Go-to-Definition. */
 export function generateDts(options: GenerateDtsOptions): string {
   const { exportNames, exportToOriginal, exportMode, sourceMapOptions } = options;
 
@@ -36,24 +37,24 @@ export function generateDts(options: GenerateDtsOptions): string {
   }
 
   const lines: DtsLine[] = HEADER_LINES.map((text) => ({ text }));
-  const seenVariables = new Set<string>();
+  const declaredVars = new Set<string>();
   const variableEntries: { varName: string; exportName: string; cssClassName: string }[] = [];
 
   for (const exportName of exportNames) {
     const varName = makeLegalIdentifier(exportName);
-    if (seenVariables.has(varName)) continue;
-    seenVariables.add(varName);
-
     const cssClassName = exportToOriginal.get(exportName) ?? exportName;
     variableEntries.push({ varName, exportName, cssClassName });
 
-    lines.push({
-      text: `declare const ${varName}: string;`,
-      mapping: {
-        className: cssClassName,
-        column: DECLARE_CONST_PREFIX_LENGTH,
-      },
-    });
+    if (!declaredVars.has(varName)) {
+      declaredVars.add(varName);
+      lines.push({
+        text: `declare const ${varName}: string;`,
+        mapping: {
+          className: cssClassName,
+          column: DECLARE_CONST_PREFIX_LENGTH,
+        },
+      });
+    }
   }
 
   const emitNamed = exportMode === "named" || exportMode === "both";

@@ -30,6 +30,7 @@ export function shouldKeepOriginal(localsConvention: LocalsConvention | undefine
   return localsConvention !== "camelCaseOnly" && localsConvention !== "dashesOnly";
 }
 
+/** Applies localsConvention to CSS class names, returning export names and their original CSS mappings. */
 export function transformClassNames(
   originalNames: string[],
   localsConvention: LocalsConvention | undefined,

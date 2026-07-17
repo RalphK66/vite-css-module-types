@@ -2,7 +2,7 @@ import { parseArgs } from "node:util";
 import path from "node:path";
 import { loadConfigFromFile } from "vite";
 import { scanAndGenerate, cleanupOrphans } from "./scan.js";
-import type { ResolvedOptions, LocalsConvention } from "./types.js";
+import type { ResolvedOptions, LocalsConvention, Logger } from "./types.js";
 
 const PLUGIN_NAME = "vite-css-module-types";
 
@@ -14,6 +14,7 @@ Reads configuration from your vite.config.ts automatically.
 
 Options:
   --root <dir>    Project root directory (default: cwd)
+  --silent        Suppress informational output
   -h, --help      Show this help message`);
 }
 
@@ -22,6 +23,7 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
     args: argv,
     options: {
       root: { type: "string" },
+      silent: { type: "boolean", default: true },
       help: { type: "boolean", short: "h", default: false },
     },
     strict: true,
@@ -33,14 +35,19 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
   }
 
   const root = path.resolve(values.root ?? process.cwd());
-
   const options = await loadOptionsFromConfig(root);
+  const silent = values.silent || options.silent;
+
+  const logger: Logger = {
+    info: silent ? () => {} : (msg) => console.log(msg),
+    error: (msg) => console.error(msg),
+  };
 
   if (options.cleanup) {
-    await cleanupOrphans(root, options);
+    await cleanupOrphans(root, options, logger);
   }
 
-  await scanAndGenerate(root, options);
+  await scanAndGenerate(root, options, logger);
 }
 
 async function loadOptionsFromConfig(root: string): Promise<ResolvedOptions> {
@@ -50,6 +57,7 @@ async function loadOptionsFromConfig(root: string): Promise<ResolvedOptions> {
     cleanup: true,
     include: ["**/*.module.css"],
     exclude: ["node_modules/**"],
+    silent: true,
   };
 
   let config;

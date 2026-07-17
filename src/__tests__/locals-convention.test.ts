@@ -45,6 +45,59 @@ describe("shouldKeepOriginal", () => {
   });
 });
 
+describe("camelCase transform", () => {
+  const transform = getTransformFn("camelCase")!;
+
+  it("converts dashed names", () => {
+    expect(transform("my-class")).toBe("myClass");
+  });
+
+  it("converts underscored names", () => {
+    expect(transform("my_class")).toBe("myClass");
+  });
+
+  it("converts dotted names", () => {
+    expect(transform("my.class")).toBe("myClass");
+  });
+
+  it("strips leading separators", () => {
+    expect(transform("-my-class")).toBe("myClass");
+    expect(transform("_my_class")).toBe("myClass");
+  });
+
+  it("lowercases first letter of PascalCase", () => {
+    expect(transform("MyClass")).toBe("myClass");
+  });
+
+  it("leaves already camelCase unchanged", () => {
+    expect(transform("myClass")).toBe("myClass");
+  });
+
+  it("handles multiple consecutive separators", () => {
+    expect(transform("my--class")).toBe("myClass");
+  });
+});
+
+describe("dashes transform", () => {
+  const transform = getTransformFn("dashes")!;
+
+  it("converts dashed names", () => {
+    expect(transform("my-class")).toBe("myClass");
+  });
+
+  it("leaves underscores alone", () => {
+    expect(transform("my_class")).toBe("my_class");
+  });
+
+  it("leaves non-dashed names unchanged", () => {
+    expect(transform("myclass")).toBe("myclass");
+  });
+
+  it("handles multiple consecutive dashes", () => {
+    expect(transform("my--class")).toBe("myClass");
+  });
+});
+
 describe("transformClassNames", () => {
   it("returns identity when no convention", () => {
     const result = transformClassNames(["input-container", "title"], undefined);

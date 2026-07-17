@@ -1,4 +1,5 @@
 import path from "node:path";
+import { readFile } from "node:fs/promises";
 import type { Plugin, ResolvedConfig } from "vite";
 import {
   isCssModule,
@@ -6,13 +7,14 @@ import {
   removeFile,
   writeFileIfChanged,
   normalizePath,
-  readCssFile,
+  cleanErrorMessage,
+  extractCssModuleClasses,
+  ansi,
 } from "./utils.js";
 import { generateDts } from "./generate-dts.js";
-import { getClassPositions } from "./utils.js";
 import { transformClassNames } from "./locals-convention.js";
 import { scanAndGenerate, cleanupOrphans, generateDtsForFile } from "./scan.js";
-import type { CssModulesDtsOptions, ResolvedOptions, LocalsConvention } from "./types.js";
+import type { CssModulesDtsOptions, ResolvedOptions, LocalsConvention, Logger } from "./types.js";
 
 export type { CssModulesDtsOptions };
 export type { ExportMode } from "./generate-dts.js";
@@ -24,13 +26,16 @@ function resolveOptions(options: CssModulesDtsOptions = {}): ResolvedOptions {
     cleanup: options.cleanup ?? true,
     include: options.include ?? ["**/*.module.css"],
     exclude: options.exclude ?? ["node_modules/**"],
+    silent: options.silent ?? true,
   };
 }
 
+/** Vite plugin that generates .d.ts type declarations for CSS Modules with Go-to-Definition support. */
 export default function cssModuleTypes(options: CssModulesDtsOptions = {}): Plugin {
   const resolved = resolveOptions(options);
   const classNamesMap = new Map<string, Record<string, string>>();
   let config: ResolvedConfig;
+  let logger: Logger;
 
   const plugin: Plugin & { _options: ResolvedOptions } = {
     name: "vite-css-module-types",
@@ -58,6 +63,7 @@ export default function cssModuleTypes(options: CssModulesDtsOptions = {}): Plug
 
     configResolved(resolvedConfig) {
       config = resolvedConfig;
+      logger = createLogger(resolved.silent, config.logger);
 
       const modulesConfig = config.css?.modules;
       if (
@@ -72,26 +78,33 @@ export default function cssModuleTypes(options: CssModulesDtsOptions = {}): Plug
     configureServer(server) {
       const root = config.root;
 
-      server.httpServer?.once("listening", async () => {
+      const onReady = async () => {
         if (resolved.cleanup) {
-          await cleanupOrphans(root, resolved);
+          await cleanupOrphans(root, resolved, logger);
         }
-        await scanAndGenerate(root, resolved);
-      });
+        await scanAndGenerate(root, resolved, logger);
+      };
+
+      if (server.httpServer) {
+        server.httpServer.once("listening", onReady);
+      } else {
+        onReady();
+      }
 
       server.watcher.on("add", async (filePath) => {
         if (!isCssModule(filePath)) return;
-        await generateDtsForFile(filePath, resolved);
+        await generateDtsForFile(filePath, resolved, logger, root);
       });
 
       server.watcher.on("change", async (filePath) => {
         if (!isCssModule(filePath)) return;
-        await generateDtsForFile(filePath, resolved);
+        await generateDtsForFile(filePath, resolved, logger, root);
       });
 
       server.watcher.on("unlink", async (filePath) => {
         if (!isCssModule(filePath)) return;
         await removeFile(getDtsPath(filePath));
+        logger.info(`${ansi.red}−${ansi.r} ${path.relative(root, filePath)}`);
       });
     },
 
@@ -105,33 +118,32 @@ export default function cssModuleTypes(options: CssModulesDtsOptions = {}): Plug
 
       const absolutePath = path.isAbsolute(cleanId) ? cleanId : path.resolve(config.root, cleanId);
 
-      // getJSON already has localsConvention applied by postcss-modules,
-      // so the keys in json are the final export names.
-      // We need to map them back to original CSS class names for source maps.
-      const classPositions = new Map<string, { line: number; column: number }>();
-      let exportToOriginal = new Map<string, string>();
+      let exportNames: string[];
+      let exportToOriginal: Map<string, string>;
+      let classPositions = new Map<string, { line: number; column: number }>();
 
-      if (resolved.declarationMap) {
-        try {
-          const css = await readCssFile(absolutePath);
-          const positions = getClassPositions(css, absolutePath);
-          for (const [name, pos] of positions) {
-            classPositions.set(name, pos);
+      try {
+        const css = await readFile(absolutePath, "utf-8");
+        const extracted = await extractCssModuleClasses(css, absolutePath);
+        classPositions = extracted.classPositions;
+
+        const transformed = transformClassNames(extracted.exportNames, resolved.localsConvention);
+        exportNames = transformed.exportNames;
+        exportToOriginal = transformed.exportToOriginal;
+
+        // Merge with getJSON to catch names from composes/other postcss-modules features
+        for (const jsonKey of Object.keys(json)) {
+          if (!exportToOriginal.has(jsonKey)) {
+            exportNames.push(jsonKey);
+            exportToOriginal.set(jsonKey, jsonKey);
           }
-
-          // Build reverse mapping: getJSON keys -> original CSS class names
-          const originalNames = [...positions.keys()];
-          const transformed = transformClassNames(originalNames, resolved.localsConvention);
-          exportToOriginal = transformed.exportToOriginal;
-        } catch {}
-      }
-
-      const exportNames = Object.keys(json);
-      // If we couldn't build the reverse mapping, create an identity mapping
-      if (exportToOriginal.size === 0) {
-        for (const name of exportNames) {
-          exportToOriginal.set(name, name);
         }
+      } catch (e) {
+        logger.error(
+          `${ansi.red}✗${ansi.r} ${path.relative(config.root, absolutePath)}: ${cleanErrorMessage(e, absolutePath)}`,
+        );
+        exportNames = Object.keys(json);
+        exportToOriginal = new Map(exportNames.map((n) => [n, n]));
       }
 
       const dtsContent = generateDts({
@@ -149,4 +161,13 @@ export default function cssModuleTypes(options: CssModulesDtsOptions = {}): Plug
   };
 
   return plugin;
+}
+
+const TAG = `${ansi.cyan}[vite-css-module-types]${ansi.r}`;
+
+function createLogger(silent: boolean, viteLogger: ResolvedConfig["logger"]): Logger {
+  return {
+    info: silent ? () => {} : (msg) => viteLogger.info(`${TAG} ${msg}`, { timestamp: true }),
+    error: (msg) => viteLogger.error(`${TAG} ${msg}`, { timestamp: true }),
+  };
 }

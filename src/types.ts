@@ -9,6 +9,12 @@ export interface CssModulesDtsOptions {
   cleanup?: boolean;
   include?: string[];
   exclude?: string[];
+  silent?: boolean;
+}
+
+export interface Logger {
+  info(msg: string): void;
+  error(msg: string): void;
 }
 
 export type LocalsConvention =
@@ -24,5 +30,6 @@ export interface ResolvedOptions {
   cleanup: boolean;
   include: string[];
   exclude: string[];
+  silent: boolean;
   localsConvention?: LocalsConvention;
 }
