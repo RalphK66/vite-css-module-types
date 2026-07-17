@@ -154,6 +154,34 @@ import styles from "./styles.module.css";
 // Autocomplete gives you: styles.inputContainer
 ```
 
+## Formatter configuration
+
+The generated `.d.ts` files are machine-written and should be excluded from your formatter. Add `**/*.module.css.d.ts` to your ignore configuration:
+
+**Prettier** (`.prettierignore`):
+
+```
+**/*.module.css.d.ts
+```
+
+**oxfmt** (`oxfmt.json` or `package.json`):
+
+```json
+{
+  "ignorePatterns": ["**/*.module.css.d.ts"]
+}
+```
+
+**Biome** (`biome.json`):
+
+```json
+{
+  "files": {
+    "ignore": ["**/*.module.css.d.ts"]
+  }
+}
+```
+
 ## Requirements
 
 - Vite 8
