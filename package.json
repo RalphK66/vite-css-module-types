@@ -1,6 +1,6 @@
 {
   "name": "vite-css-module-types",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Generate .d.ts type declarations for CSS Modules in Vite 8 with Go-to-Definition support",
   "keywords": [
     "css-modules",
